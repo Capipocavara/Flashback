@@ -1,0 +1,18 @@
+{
+    "name": "Flashback.Editor",
+    "rootNamespace": "Flashback",
+    "references": [
+        "GUID:5b9c24af487fa7741badd0711cb72246"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,19 @@
+{
+  "name": "de.capipocavara.flashback",
+  "displayName": "Flashback",
+  "description": "Flashback gif recorder for Unity",
+  "version": "0.1.0",
+  "unity": "6000.4",
+  "author": {
+    "name": "Capipocavara"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:Capipocavara/Flashback.git"
+  },
+  "keywords": [
+    "Gif",
+    "Recorder"
+  ],
+  "license": "MIT"
+}
