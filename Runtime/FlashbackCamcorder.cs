@@ -7,12 +7,13 @@ using JetBrains.Annotations;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.Rendering;
+using Debug = UnityEngine.Debug;
 using ThreadPriority = System.Threading.ThreadPriority;
 using UnityObject = UnityEngine.Object;
 
 namespace Flashback
 {
-    public enum CamcorderSate
+    public enum CamcorderState
     {
         Recording,
         Suspending,
@@ -29,21 +30,13 @@ namespace Flashback
     {
         Square,
         FromCamera,
-        RawCamera,
         Custom
     }
 
     [AddComponentMenu("Capipocavara/Flashback Camcorder")]
     [RequireComponent(typeof(Camera)), DisallowMultipleComponent]
-    public sealed class FlashbackCamcorder : MonoBehaviour
+    public sealed class FlashbackCamcorder : MonoBehaviour, ISerializationCallbackReceiver
     {
-#if UNITY_EDITOR
-        private int maxFrameBufferSize;
-        private int failedAsyncGPUReadbackRequest;
-        private string lastfile;
-        private float saveProgress;
-#endif
-
         private const int MinWidth = 8;
         private const int MinHeight = 8;
         private const int MaxFps = 30;
@@ -55,8 +48,15 @@ namespace Flashback
         [SerializeField, Range(1, 100)] private int quality = 15;
         [SerializeField, Min(-1)] private int repeat;
         [SerializeField, Min(0.1f)] private float frameBufferSize = 5f;
-        [SerializeField, Range(0f, 2f)] private float longpressDelay = 0.5f;
+        [SerializeField, Range(0f, 2f)] private float longPressDelay = 0.5f;
         [SerializeField] private string currentSaveFolder = "";
+
+#if UNITY_EDITOR
+        private int maxFrameBufferSize;
+        private int failedAsyncGPUReadbackRequest;
+        private string lastFile;
+        private float saveProgress;
+#endif
 
         public string SaveFolder {
             get {
@@ -70,17 +70,17 @@ namespace Flashback
             }
         }
 
-        [SerializeField] private string currentFilePrefix = "SnapVR";
+        [SerializeField] private string currentFilePrefix = "Flashback";
 
         public string FilePrefix {
             get {
-                UpdateNumberedGifCount();
+                folderNumberedGifCount = Directory.GetFiles(currentSaveFolder, currentFilePrefix + "-????.gif").Length + 1;
                 return currentFilePrefix;
             }
             [UsedImplicitly]
             set {
                 currentFilePrefix = value;
-                UpdateNumberedGifCount();
+                folderNumberedGifCount = Directory.GetFiles(currentSaveFolder, currentFilePrefix + "-????.gif").Length + 1;
             }
         }
 
@@ -91,7 +91,7 @@ namespace Flashback
             [UsedImplicitly]
             set {
                 currentFileStyle = value;
-                UpdateNumberedGifCount();
+                folderNumberedGifCount = Directory.GetFiles(currentSaveFolder, currentFilePrefix + "-????.gif").Length + 1;
             }
         }
 
@@ -101,7 +101,7 @@ namespace Flashback
 #if UNITY_EDITOR
         public string Statistics {
             get {
-                if (!isInitialzied)
+                if (!isInitialized)
                     return "Initializing";
 
                 var stats = new StringBuilder().Append("Recorder State: ").Append(State).AppendLine();
@@ -120,11 +120,11 @@ namespace Flashback
                     stats.Append("Progress Report: ").AppendFormat("{0:f2}%", saveProgress);
                 }
 
-                if (string.IsNullOrEmpty(lastfile))
+                if (string.IsNullOrEmpty(lastFile))
                     return stats.ToString();
 
                 stats.AppendLine();
-                stats.AppendLine("Last File Saved: ").Append(lastfile);
+                stats.AppendLine("Last File Saved: ").Append(lastFile);
                 return stats.ToString();
             }
         }
@@ -132,7 +132,7 @@ namespace Flashback
         public float EstimatedMemoryUse => framesPerSecond * frameBufferSize * width * height * 4 / (1024 * 1024);
 #endif
 
-        [UsedImplicitly] public CamcorderSate State { get; private set; } = CamcorderSate.Stopped;
+        [UsedImplicitly] public CamcorderState State { get; private set; } = CamcorderState.Stopped;
         [UsedImplicitly] public bool IsSaving { get; private set; }
 
         public UnityEvent<int, float> onFileSaveProgress;
@@ -152,13 +152,13 @@ namespace Flashback
         private List<EncoderWorker> encodingJobs;
         private readonly Queue<Action> unityEventQueue = new();
         private Camera attachedCamera;
-        private bool isInitialzied;
+        private bool isInitialized;
 
-        public FlashbackCamcorder(string lastfile) => this.lastfile = lastfile;
+        public FlashbackCamcorder(string lastFile) => this.lastFile = lastFile;
 
         private void Awake()
         {
-            var capacity = Mathf.RoundToInt((frameBufferSize + longpressDelay) * framesPerSecond);
+            var capacity = Mathf.RoundToInt((frameBufferSize + longPressDelay) * framesPerSecond);
 
             rawFrames = new Queue<RenderTexture>(capacity);
             grabbedGifFrames = new List<GifFrame>(capacity * 2);
@@ -181,7 +181,7 @@ namespace Flashback
 
             passedTime += Time.unscaledDeltaTime;
             if (passedTime >= timePerFrame) {
-                if (State != CamcorderSate.Stopped && !attachedCamera.enabled)
+                if (State != CamcorderState.Stopped && !attachedCamera.enabled)
                     attachedCamera.Render();
 
                 if (IsSaving && gifFramesToGrab > 0 && rawFrames.Peek() != null)
@@ -225,10 +225,20 @@ namespace Flashback
 
         private void LateUpdate()
         {
-            if (State != CamcorderSate.Suspending || IsSaving)
+            if (State != CamcorderState.Suspending || IsSaving)
                 return;
 
-            CleanUp();
+            isInitialized = false;
+            if (rawFrames != null) {
+                foreach (var rt in rawFrames)
+                    Flush(rt);
+
+                rawFrames.Clear();
+            }
+
+            grabbedGifFrames.Clear();
+            asyncRequests.Clear();
+            State = CamcorderState.Stopped;
             onStopped.Invoke();
         }
 
@@ -237,9 +247,9 @@ namespace Flashback
             if (passedTime >= timePerFrame) {
                 passedTime -= timePerFrame;
 
-                if (State != CamcorderSate.Stopped) {
+                if (State != CamcorderState.Stopped) {
                     RenderTexture rt = null;
-                    // Clean up superflous frames and recycle the last one for the new frame
+                    // Clean up superfluous frames and recycle the last one for the new frame
                     if (rawFrames.Count >= maxFramesToKeep)
                         rt = rawFrames.Dequeue();
 
@@ -263,12 +273,11 @@ namespace Flashback
         }
 
         private void OnDestroy() => Stop();
-
-
+        
         private void Init()
         {
             maxFramesToCapture = Mathf.RoundToInt(frameBufferSize * framesPerSecond);
-            maxFramesToKeep = maxFramesToCapture + Mathf.RoundToInt(longpressDelay * framesPerSecond);
+            maxFramesToKeep = maxFramesToCapture + Mathf.RoundToInt(longPressDelay * framesPerSecond);
             timePerFrame = 1f / framesPerSecond;
             passedTime = 0f;
 
@@ -283,38 +292,22 @@ namespace Flashback
 
             // Make sure the output folder is set or use the default one
             if (autoStart)
-                State = CamcorderSate.Recording;
+                State = CamcorderState.Recording;
 
-            isInitialzied = true;
+            isInitialized = true;
         }
-
-        private void CleanUp()
-        {
-            isInitialzied = false;
-            if (rawFrames != null) {
-                foreach (var rt in rawFrames)
-                    Flush(rt);
-
-                rawFrames.Clear();
-            }
-
-            grabbedGifFrames.Clear();
-            asyncRequests.Clear();
-            State = CamcorderSate.Stopped;
-        }
-
-
+        
         [UsedImplicitly]
-        public void Setup(int initWidth, int initHeight, CamcorderAspectRatio initAspectRatio, int initFramesPerSecond, int initQuality, int initRepeat, float initFrameBufferSize, float initLongpressDelay)
+        public void Setup(int initWidth, int initHeight, CamcorderAspectRatio initAspectRatio, int initFramesPerSecond, int initQuality, int initRepeat, float initFrameBufferSize, float initLongPressDelay)
         {
             switch (State) {
-                case CamcorderSate.Recording:
+                case CamcorderState.Recording:
                     Debug.Log("Still recording. Call Stop() first.");
                     break;
-                case CamcorderSate.Suspending:
+                case CamcorderState.Suspending:
                     Debug.Log("Still suspending. Wait until stopped. Subscribe to 'OnStopped' to get notified.");
                     break;
-                case CamcorderSate.Stopped:
+                case CamcorderState.Stopped:
                     width = Mathf.Max(MinWidth, initWidth);
                     height = Mathf.Max(MinHeight, initHeight);
                     aspectRatio = initAspectRatio;
@@ -322,7 +315,7 @@ namespace Flashback
                     quality = Mathf.Clamp(initQuality, 1, 100);
                     repeat = Mathf.Max(-1, initRepeat);
                     frameBufferSize = Mathf.Max(0.1f, initFrameBufferSize);
-                    longpressDelay = Mathf.Clamp(initLongpressDelay, 0f, 2f);
+                    longPressDelay = Mathf.Clamp(initLongPressDelay, 0f, 2f);
 
                     Init();
                     break;
@@ -334,19 +327,19 @@ namespace Flashback
         [UsedImplicitly]
         public void Record()
         {
-            if (State == CamcorderSate.Stopped && !isInitialzied)
+            if (State == CamcorderState.Stopped && !isInitialized)
                 Init();
 
-            State = CamcorderSate.Recording;
+            State = CamcorderState.Recording;
         }
 
         [UsedImplicitly]
         public void Stop()
         {
-            if (State != CamcorderSate.Recording)
+            if (State != CamcorderState.Recording)
                 return;
 
-            State = CamcorderSate.Suspending;
+            State = CamcorderState.Suspending;
             encodingJobs.Clear();
         }
 
@@ -358,11 +351,15 @@ namespace Flashback
                 return;
             }
 
-            if (State != CamcorderSate.Recording)
+            if (State != CamcorderState.Recording)
                 return;
 
             if (string.IsNullOrEmpty(filename))
-                filename = GenerateFileName();
+                filename = FilePrefix + FileStyle switch {
+                    CamcorderFileStyle.Timestamp => "-" + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss") + "'" + DateTime.Now.Millisecond.ToString("D4"),
+                    CamcorderFileStyle.Numbered => "-" + folderNumberedGifCount++.ToString("D4"),
+                    _ => ""
+                };
 
             gifFramesToGrab = maxFramesToCapture;
             encodingJobs.Add(new EncoderWorker(encodingPriority) {
@@ -394,7 +391,7 @@ namespace Flashback
             unityEventQueue.Enqueue(() => { onFileSaved?.Invoke(id, filename); });
 #if UNITY_EDITOR
             saveProgress = 0f;
-            lastfile = filename;
+            lastFile = filename;
 #endif
         }
 
@@ -403,43 +400,17 @@ namespace Flashback
         {
             if (string.IsNullOrEmpty(currentSaveFolder)) {
 #if UNITY_EDITOR
-                currentSaveFolder = Directory.GetParent(Application.dataPath)?.FullName + "\\Snaps";
+                currentSaveFolder = Directory.GetParent(Application.dataPath)?.FullName + "\\Flashbacks";
 #else
-			    currentSaveFolder = Application.persistentDataPath + "\\Snaps";
+			    currentSaveFolder = Application.persistentDataPath + "\\Flashbacks";
 #endif
             }
 
             if (!Directory.Exists(currentSaveFolder))
                 Directory.CreateDirectory(currentSaveFolder);
 
-            UpdateNumberedGifCount();
+            folderNumberedGifCount = Directory.GetFiles(currentSaveFolder, currentFilePrefix + "-????.gif").Length + 1;
         }
-
-        // Gets a filename
-        private string GenerateFileName()
-        {
-            string postfix;
-            switch (FileStyle) {
-                case CamcorderFileStyle.Timestamp:
-                    postfix = " - " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss") + "'" + DateTime.Now.Millisecond.ToString("D4");
-                    break;
-                case CamcorderFileStyle.Numbered:
-                    postfix = " " + folderNumberedGifCount.ToString("D4");
-                    folderNumberedGifCount++;
-                    break;
-                default:
-                    postfix = "";
-                    break;
-            }
-
-            return FilePrefix + postfix;
-        }
-
-        private void UpdateNumberedGifCount()
-        {
-            folderNumberedGifCount = Directory.GetFiles(currentSaveFolder, currentFilePrefix + " ????.gif").Length + 1;
-        }
-
 
         public void ComputeHeight()
         {
@@ -448,7 +419,6 @@ namespace Flashback
                     height = width;
                     break;
                 case CamcorderAspectRatio.FromCamera:
-                case CamcorderAspectRatio.RawCamera:
 #if UNITY_EDITOR
                     height = Mathf.RoundToInt(width / GetComponent<Camera>().aspect);
 #else
@@ -471,5 +441,19 @@ namespace Flashback
             Destroy(obj);
 #endif
         }
+
+        public void OnBeforeSerialize()
+        {
+            width = Mathf.Max(MinWidth, width);
+            height = Mathf.Max(MinHeight, height);
+            framesPerSecond = Mathf.Clamp(framesPerSecond, 1, MaxFps);
+            quality = Mathf.Clamp(quality, 1, 100);
+            repeat = Mathf.Max(-1, repeat);
+            frameBufferSize = Mathf.Max(0.1f, frameBufferSize);
+            longPressDelay = Mathf.Clamp(longPressDelay, 0f, 2f);
+            ComputeHeight();
+        }
+
+        public void OnAfterDeserialize() => ComputeHeight();
     }
 }

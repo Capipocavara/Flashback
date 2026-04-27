@@ -1,6 +1,7 @@
 ﻿using System;
 using UnityEditor;
 using UnityEngine;
+using Random = UnityEngine.Random;
 
 namespace Flashback.Editor
 {
@@ -17,7 +18,7 @@ namespace Flashback.Editor
         private SerializedProperty quality;
         private SerializedProperty repeat;
         private SerializedProperty frameBufferSize;
-        private SerializedProperty longpressDelay;
+        private SerializedProperty longPressDelay;
 
         // File Format
         private SerializedProperty saveFolder;
@@ -47,21 +48,21 @@ namespace Flashback.Editor
             quality = serializedObject.FindProperty("quality");
             repeat = serializedObject.FindProperty("repeat");
             frameBufferSize = serializedObject.FindProperty("frameBufferSize");
-            longpressDelay = serializedObject.FindProperty("longpressDelay");
+            longPressDelay = serializedObject.FindProperty("longPressDelay");
             // File Format
             saveFolder = serializedObject.FindProperty("currentSaveFolder");
             filePrefix = serializedObject.FindProperty("currentFilePrefix");
             fileStyle = serializedObject.FindProperty("currentFileStyle");
-            encodingPriority = serializedObject.FindProperty("EncodingPriority");
-            autoStart = serializedObject.FindProperty("AutoStart");
+            encodingPriority = serializedObject.FindProperty("encodingPriority");
+            autoStart = serializedObject.FindProperty("autoStart");
             // Events
-            onFileSaveProgress = serializedObject.FindProperty("OnFileSaveProgress");
-            onFileSaved = serializedObject.FindProperty("OnFileSaved");
-            onStopped = serializedObject.FindProperty("OnStopped");
+            onFileSaveProgress = serializedObject.FindProperty("onFileSaveProgress");
+            onFileSaved = serializedObject.FindProperty("onFileSaved");
+            onStopped = serializedObject.FindProperty("onStopped");
 
             inspectedFlashbackCamcorder = (FlashbackCamcorder)target;
             inspectedFlashbackCamcorder.GeneratePath();
-            GenerateExample();
+            fileNameExample = GetFileNameExample;
         }
 
         public override void OnInspectorGUI()
@@ -96,10 +97,10 @@ namespace Flashback.Editor
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Recording Format", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(framesPerSecond, new GUIContent("Frames Per Second", "The number of frames per second the gif will run at."));
-            EditorGUILayout.PropertyField(quality, new GUIContent("Compression Quality", "Lower values mean better quality but slightly longer processing time. 15 is generally a good middleground value."));
+            EditorGUILayout.PropertyField(quality, new GUIContent("Compression Quality", "Lower values mean better quality but slightly longer processing time. 15 is generally a good middle ground value."));
             EditorGUILayout.PropertyField(repeat, new GUIContent("Repeat", "-1 to disable, 0 to loop indefinitely, >0 to loop a set number of time."));
             EditorGUILayout.PropertyField(frameBufferSize, new GUIContent("Record Time", "The amount of time (in seconds) to record to memory."));
-            EditorGUILayout.PropertyField(longpressDelay, new GUIContent("Longpress Delay", "Longpress capture support. Capture additional frames (in seconds) to start gif creation from the start of a longpress."));
+            EditorGUILayout.PropertyField(longPressDelay, new GUIContent("Long press Delay", "Long press capture support. Capture additional frames (in seconds) to start gif creation from the start of a long press."));
             if (Application.isEditor && Application.isPlaying) {
                 GUI.enabled = true;
             }
@@ -115,7 +116,7 @@ namespace Flashback.Editor
             EditorGUILayout.PropertyField(fileStyle, new GUIContent("File Style", "Add a Count or a Timestamp to saved gifs."));
             if (EditorGUI.EndChangeCheck()) {
                 serializedObject.ApplyModifiedProperties();
-                GenerateExample();
+                fileNameExample = GetFileNameExample;
             }
 
             EditorGUILayout.HelpBox("Example: \"" + fileNameExample + "\"" + Environment.NewLine + "Estimated VRam Usage: " + inspectedFlashbackCamcorder.EstimatedMemoryUse.ToString("F3") + " MB", MessageType.Info);
@@ -132,17 +133,10 @@ namespace Flashback.Editor
             serializedObject.ApplyModifiedProperties();
         }
 
-        private void GenerateExample()
-        {
-            switch (fileStyle.enumValueIndex) {
-                case (int)CamcorderFileStyle.Timestamp:
-                    fileNameExample = filePrefix.stringValue + " " + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss") + "'" + DateTime.Now.Millisecond.ToString("D4") + ".gif";
-                    break;
-                case (int)CamcorderFileStyle.Numbered:
-                    System.Random rand = new System.Random();
-                    fileNameExample = filePrefix.stringValue + " " + rand.Next(100).ToString("D4") + ".gif";
-                    break;
-            }
-        }
+        private string GetFileNameExample => fileStyle.enumValueIndex switch {
+            (int)CamcorderFileStyle.Timestamp => filePrefix.stringValue + "-" + DateTime.Now.ToString("yyyy-MM-dd HH-mm-ss") + "'" + DateTime.Now.Millisecond.ToString("D4") + ".gif",
+            (int)CamcorderFileStyle.Numbered => filePrefix.stringValue + "-" + Random.Range(1, 100).ToString("D4") + ".gif",
+            _ => ""
+        };
     }
 }

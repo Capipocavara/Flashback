@@ -26,9 +26,7 @@ namespace Flashback
         internal EncoderWorker(ThreadPriority priority)
         {
             currentId = workerId++;
-            thread = new Thread(Run) {
-                Priority = priority
-            };
+            thread = new Thread(Run) { Priority = priority };
             frameToGet = 0;
             pixels = null;
         }
@@ -54,8 +52,7 @@ namespace Flashback
                     OnFileSaveProgress?.Invoke(currentId, (float)frameToGet / (FramesToEncode + frameToGet));
                     frameToGet++;
                     FramesToEncode--;
-                } else
-                    Thread.Yield();
+                } else Thread.Yield();
             }
 
             Encoder.Finish();

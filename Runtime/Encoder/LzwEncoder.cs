@@ -1,19 +1,4 @@
-﻿/*
- * No copyright asserted on the source code of this class. May be used
- * for any purpose, however, refer to the Unisys LZW patent for restrictions
- * on use of the associated LZWEncoder class :
- *
- * The Unisys patent expired on 20 June 2003 in the USA, in Europe it expired
- * on 18 June 2004, in Japan the patent expired on 20 June 2004 and in Canada
- * it expired on 7 July 2004. The U.S. IBM patent expired 11 August 2006, The
- * Software Freedom Law Center says that after 1 October 2006, there will be
- * no significant patent claims interfering with employment of the GIF format.
- *
- * Original code by Kevin Weiner, FM Software.
- * Adapted from Jef Poskanzer's Java port by way of J. M. G. Elliott.
- */
-
-using System;
+﻿using System;
 using System.IO;
 
 namespace Flashback.Encoder
@@ -50,6 +35,14 @@ namespace Flashback.Encoder
             pixAry = pixels;
             masks = new[] { 0x0000, 0x0001, 0x0003, 0x0007, 0x000F, 0x001F, 0x003F, 0x007F, 0x00FF, 0x01FF, 0x03FF, 0x07FF, 0x0FFF, 0x1FFF, 0x3FFF, 0x7FFF, 0xFFFF };
             initCodeSize = Math.Max(2, colorDepth);
+        }
+        
+        public void Encode(Stream os)
+        {
+            os.WriteByte(Convert.ToByte(initCodeSize));
+            curPixel = 0;
+            Compress(initCodeSize + 1, os);
+            os.WriteByte(0);
         }
 
         private void Add(byte c, Stream outs)
@@ -125,14 +118,6 @@ namespace Flashback.Encoder
 
             Output(ent, outs);
             Output(eofCode, outs);
-        }
-
-        public void Encode(Stream os)
-        {
-            os.WriteByte(Convert.ToByte(initCodeSize));
-            curPixel = 0;
-            Compress(initCodeSize + 1, os);
-            os.WriteByte(0);
         }
 
         private void Flush(Stream outs)
