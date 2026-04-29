@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using Flashback.Encoder;
 using JetBrains.Annotations;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.Rendering;
@@ -32,7 +33,7 @@ namespace Flashback
         FromCamera,
         Custom
     }
-
+    
     [AddComponentMenu("Capipocavara/Flashback Camcorder")]
     [RequireComponent(typeof(Camera)), DisallowMultipleComponent]
     public sealed class FlashbackCamcorder : MonoBehaviour, ISerializationCallbackReceiver
@@ -56,6 +57,17 @@ namespace Flashback
         private int failedAsyncGPUReadbackRequest;
         private string lastFile;
         private float saveProgress;
+        
+        [MenuItem("GameObject/Capipocavara/Flashback Camcorder", false, 10)]
+        public static void CreateFlashbacCamcorder(MenuCommand menuCommand)
+        {
+            var go = new GameObject("Flashback Camcorder");
+            GameObjectUtility.SetParentAndAlign(go, menuCommand.context as GameObject);
+            go.AddComponent<Camera>();
+            go.AddComponent<FlashbackCamcorder>();
+            Undo.RegisterCreatedObjectUndo(go, "Create " + go.name);
+            Selection.activeObject = go;
+        }
 #endif
 
         public string SaveFolder {
